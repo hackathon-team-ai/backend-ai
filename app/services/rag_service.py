@@ -1,7 +1,7 @@
 import os
 import uuid
 import logging
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Optional
 from app.core.config import settings
 
 logger = logging.getLogger("krishimitra.rag")
