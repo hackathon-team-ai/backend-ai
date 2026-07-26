@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     MONGODB_DB_NAME: str = "krishimitra_db"
 
     GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.0-flash"
 
     CHROMA_PERSIST_DIRECTORY: str = "./chroma_db"
     UPLOAD_DIR: str = "./uploads"

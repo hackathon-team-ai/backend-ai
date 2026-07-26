@@ -1,5 +1,6 @@
-from datetime import timedelta
+from datetime import datetime, timezone, timedelta
 import uuid
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from app.core.config import settings
@@ -8,12 +9,25 @@ from app.database.mongodb import get_database
 from app.schemas.user import UserCreate, UserLogin, UserResponse, Token, PasswordReset, UserInDB
 
 router = APIRouter()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login", auto_error=False)
 
 # In-memory users fallback database if MongoDB is not running
 IN_MEMORY_USERS = {}
+DEMO_USER = {
+    "id": "demo_user",
+    "_id": "demo_user",
+    "email": "farmer@krishimitra.local",
+    "full_name": "Demo Farmer",
+    "role": "farmer",
+    "is_active": True,
+    "created_at": datetime.now(timezone.utc),
+}
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
+async def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> dict:
+    # The UI supports a demo mode before a farmer registers.  Keep real JWT
+    # validation for authenticated users while allowing those demo requests.
+    if not token:
+        return DEMO_USER
     payload = security.decode_token(token)
     if not payload or payload.get("type") != "access":
         raise exceptions.CredentialsException()

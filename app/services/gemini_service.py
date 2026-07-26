@@ -1,115 +1,102 @@
 import logging
-import json
+
 try:
     import google.generativeai as genai
 except ImportError:
-    try:
-        from google import genai
-    except ImportError:
-        genai = None
+    genai = None
 
 from app.core.config import settings
 
 logger = logging.getLogger("krishimitra.gemini")
 
-# System prompt tuned specifically for Indian & Global Agriculture
 AGRICULTURE_SYSTEM_PROMPT = """
-You are KrishiMitra AI, an expert Senior Agronomist and Multimodal Agriculture Advisor.
-Your objective is to provide precise, scientific, practical, and highly empathetic farming advice to farmers.
-
-Key Rules:
-1. Cover topics accurately: Crop selection, Fertilizers (NPK dosage), Plant Pathology/Diseases, Pest management, Irrigation schedules, Harvesting techniques, and Organic/Regenerative farming.
-2. Format responses with clear Markdown headings, bullet points, step-by-step instructions, bold highlights, and structured tables where applicable.
-3. Offer actionable solutions considering soil types, weather conditions, organic alternatives, and safety instructions for agro-chemicals.
-4. Keep explanations accessible to farmers of all experience levels while maintaining agronomic rigour.
+You are KrishiMitra AI, an expert agriculture advisor for Indian farmers.
+Answer the farmer's latest question directly and only on that topic. Do not reuse
+an answer from another question and do not give a generic NPK recommendation unless
+the farmer asks about fertilizer. Use clear, practical language. If crop, growth
+stage, location, or symptoms are required for a safe dosage or diagnosis, say what
+information is missing instead of inventing it. Reply in the requested language.
 """
+
 
 class GeminiService:
     def __init__(self):
-        self.api_key = settings.GEMINI_API_KEY
-        if genai and hasattr(genai, 'configure') and self.api_key and self.api_key != "AIzaSy-placeholder-key-for-development":
-            try:
-                genai.configure(api_key=self.api_key)
-                self.model = genai.GenerativeModel('gemini-1.5-flash')
-                logger.info("Initialized Google Gemini API client successfully.")
-            except Exception as e:
-                logger.warning(f"Failed to configure Gemini API: {e}")
-                self.model = None
-        else:
-            self.model = None
-            logger.info("No valid GEMINI_API_KEY provided; operating with Agronomy AI Fallback Engine.")
+        self.api_key = settings.GEMINI_API_KEY.strip()
+        self.model = None
 
-    async def generate_response(self, user_prompt: str, category: str = "General", context: str = "") -> str:
-        full_prompt = f"{AGRICULTURE_SYSTEM_PROMPT}\n\nCategory: {category}\n"
+        if not genai or not self.api_key or self.api_key.startswith("AIzaSy-placeholder"):
+            logger.warning("Gemini is not configured; chat will use the local question-aware fallback.")
+            return
+
+        try:
+            genai.configure(api_key=self.api_key)
+            # gemini-3.5-flash is not a valid public Gemini model name.
+            self.model = genai.GenerativeModel(settings.GEMINI_MODEL)
+            logger.info("Gemini chat model initialized: %s", settings.GEMINI_MODEL)
+        except Exception as exc:
+            logger.exception("Unable to initialise Gemini: %s", exc)
+
+    async def generate_response(self, user_prompt: str, category: str = "General", context: str = "", language: str = "en") -> str:
+        question = user_prompt.strip()
+        if not question:
+            return "Please type your farming question."
+
+        language_name = {"mr": "Marathi", "hi": "Hindi", "en": "English"}.get(language.lower(), "English")
+        prompt = f"{AGRICULTURE_SYSTEM_PROMPT}\n\nCategory: {category}\n"
         if context:
-            full_prompt += f"Retrieved Knowledge Context:\n{context}\n\n"
-        full_prompt += f"Farmer Question:\n{user_prompt}"
+            prompt += f"Use this retrieved knowledge only when relevant:\n{context}\n\n"
+        prompt += f"Farmer's latest question: {question}\n\nReply only in {language_name}."
 
         if self.model:
             try:
-                response = self.model.generate_content(full_prompt)
-                if response and response.text:
-                    return response.text
-            except Exception as e:
-                logger.error(f"Gemini API call failed: {e}. Falling back to domain engine.")
+                response = self.model.generate_content(
+                    prompt,
+                    generation_config={"temperature": 0.2, "top_p": 0.9, "top_k": 32},
+                )
+                answer = getattr(response, "text", "").strip()
+                if answer:
+                    return answer
+                logger.warning("Gemini returned an empty response.")
+            except Exception as exc:
+                logger.warning("Gemini generation failed; using local fallback: %s", exc)
 
-        # Agronomy Smart Fallback Engine
-        return self._generate_smart_fallback(user_prompt, category)
+        return self._question_aware_fallback(question, category, language)
 
-    def _generate_smart_fallback(self, query: str, category: str) -> str:
-        q_lower = query.lower()
-        if "fertilizer" in q_lower or "npk" in q_lower or category == "Fertilizers":
-            return """### 🌿 Recommended Fertilizer Management Plan
+    def _question_aware_fallback(self, question: str, category: str, language: str) -> str:
+        """Safe offline response that never substitutes an unrelated NPK answer."""
+        topic = f"{question.lower()} {category.lower()}"
 
-For optimal crop yield, follow balanced NPK management based on soil test results:
+        if any(term in topic for term in ("what is crop", "what are crops", "crop meaning", "what is a crop")):
+            return self._localized(
+                "### What is a crop?\n\nA crop is a plant grown and harvested by farmers for food, fodder, fibre, oil, medicine, or other useful products. Examples include rice, wheat, cotton, sugarcane, and vegetables.",
+                "### पीक म्हणजे काय?\n\nशेतकरी अन्न, चारा, तंतू, तेल, औषध किंवा इतर उपयोगासाठी ज्या वनस्पती पिकवून काढतात त्याला पीक म्हणतात. उदा. तांदूळ, गहू, कापूस, ऊस आणि भाजीपाला.",
+                "### फसल क्या है?\n\nकिसान भोजन, चारा, रेशा, तेल, दवा या अन्य उपयोग के लिए जिन पौधों को उगाकर काटते हैं, उन्हें फसल कहते हैं। उदाहरण: धान, गेहूँ, कपास, गन्ना और सब्जियाँ।",
+                language,
+            )
+        if any(term in topic for term in ("fertilizer", "npk", "urea", "manure", "खत", "खाद")):
+            return self._localized(
+                "Please share the crop, area, crop stage, and soil-test values. Fertilizer dose changes by crop and soil, so a single NPK dose would be unsafe.",
+                "कृपया पीक, क्षेत्रफळ, पिकाची अवस्था आणि माती परीक्षणातील N-P-K मूल्ये सांगा. खताची मात्रा पीक व मातीप्रमाणे बदलते; एकच NPK मात्रा सुरक्षित नाही.",
+                "कृपया फसल, क्षेत्रफल, फसल की अवस्था और मिट्टी परीक्षण के N-P-K मान बताइए। उर्वरक की मात्रा फसल और मिट्टी के अनुसार बदलती है; एक ही NPK मात्रा सुरक्षित नहीं है।",
+                language,
+            )
+        if any(term in topic for term in ("disease", "spot", "yellow", "blight", "pest", "insect", "रोग", "कीड", "कीट")):
+            return self._localized(
+                "Please share the crop name, plant age, visible symptoms, and a clear leaf photo. Do not spray a pesticide or fungicide until the problem is identified.",
+                "कृपया पिकाचे नाव, पिकाचे वय, दिसणारी लक्षणे आणि पानाचा स्पष्ट फोटो पाठवा. समस्या ओळखल्याशिवाय कीटकनाशक किंवा बुरशीनाशक फवारू नका.",
+                "कृपया फसल का नाम, फसल की उम्र, दिखने वाले लक्षण और पत्ते की साफ फोटो भेजें। समस्या पहचाने बिना कीटनाशक या फफूंदनाशक का छिड़काव न करें।",
+                language,
+            )
+        return self._localized(
+            f"I received your question: **{question}**. Gemini is currently unavailable, so please try again after configuring a valid Gemini API key. I will not replace it with an unrelated farming answer.",
+            f"तुमचा प्रश्न मिळाला: **{question}**. Gemini सध्या उपलब्ध नाही. वैध Gemini API key सेट केल्यानंतर पुन्हा प्रयत्न करा; मी याऐवजी असंबंधित शेतीचा सल्ला देणार नाही.",
+            f"आपका प्रश्न मिला: **{question}**। Gemini अभी उपलब्ध नहीं है। वैध Gemini API key सेट करने के बाद फिर प्रयास करें; मैं इसके बदले असंबंधित खेती की सलाह नहीं दूँगा।",
+            language,
+        )
 
-#### 1. Basal Application (At Sowing)
-* **NPK Ratio**: Apply 50% Nitrogen, 100% Phosphorus (P2O5), and 50% Potash (K2O).
-* **Organic Boost**: Apply 5-10 tonnes of well-decomposed Farm Yard Manure (FYM) or Vermicompost per acre 15 days before sowing.
+    @staticmethod
+    def _localized(english: str, marathi: str, hindi: str, language: str) -> str:
+        return {"mr": marathi, "hi": hindi}.get(language.lower(), english)
 
-#### 2. Top Dressing (Vegetative Stage)
-* **Nitrogen Boost**: Apply the remaining 50% Urea in 2 split doses at 30 days and 50 days post-sowing.
-* **Micro-nutrients**: Spray **Zinc Sulphate (0.5%)** and **Ferrous Sulphate (0.5%)** if leaf yellowing is observed.
-
-> 💡 **Organic Tip**: Incorporate Bio-fertilizers like *Azotobacter* and *PSB (Phosphorus Solubilizing Bacteria)* @ 2 kg/acre to improve soil microbe activity.
-"""
-
-        elif "disease" in q_lower or "yellow" in q_lower or "spot" in q_lower or category == "Diseases":
-            return """### 🔍 Plant Pathology Guidance
-
-Leaf yellowing or fungal spots are common indicators of early-stage fungal or bacterial infection.
-
-#### Recommended Action Steps:
-1. **Immediate Inspection**: Check the undersides of lower leaves for white powder or brown concentric rings.
-2. **Fungicide Spray**:
-   - **Chemical**: Spray **Mancozeb 75% WP** @ 2g/liter of water or **Hexaconazole 5% EC** @ 1.5ml/liter.
-   - **Organic**: Spray **Neem Oil (10,000 ppm)** @ 3ml/liter + 1ml liquid soap.
-3. **Cultural Control**: Avoid overhead sprinkler irrigation during high atmospheric humidity to prevent fungal spore germination.
-"""
-
-        elif "irrigation" in q_lower or "water" in q_lower or category == "Irrigation":
-            return """### 💧 Smart Irrigation & Water Advisory
-
-Proper irrigation scheduling conserves water while preventing root rot and stress:
-
-* **Drip Irrigation**: Maintain moisture at field capacity. Irrigate for 1.5 to 2 hours every alternate day depending on solar radiation.
-* **Critical Moisture Stages**:
-  - Flowering / Tasseling Stage
-  - Grain Formation / Pod Filling Stage
-* **Mulching**: Apply 3-inch straw or plastic mulch to reduce evaporation loss by up to 40%.
-"""
-
-        else:
-            return f"""### 🌾 KrishiMitra Agronomy Advisory
-
-Thank you for your question regarding **{category}**.
-
-#### Comprehensive Recommendations:
-1. **Soil Health**: Test soil pH (ideal range: 6.5–7.5) and electrical conductivity (EC) before seasonal planting.
-2. **Crop Protection**: Inspect field early in the morning twice a week for early detection of pest egg masses or leaf feeding.
-3. **Climate Resilience**: Monitor 7-day weather updates before applying foliar sprays or major irrigation runs.
-
-*Feel free to ask a follow-up question or upload a leaf photo for automated disease identification!*
-"""
 
 gemini_service = GeminiService()
