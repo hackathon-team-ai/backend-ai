@@ -1,14 +1,12 @@
-import os
+import base64
 import json
 import logging
-from PIL import Image
+import re
+
 try:
-    import google.generativeai as genai
-except Exception:
-    try:
-        from google import genai
-    except Exception:
-        genai = None
+    from groq import Groq
+except ImportError:
+    Groq = None
 
 from app.core.config import settings
 from app.schemas.disease import DiseaseAnalysisResult, TreatmentPlan
@@ -18,25 +16,33 @@ logger = logging.getLogger("krishimitra.disease")
 
 class DiseaseService:
     def __init__(self):
-        self.api_key = settings.GEMINI_API_KEY
-        if genai and hasattr(genai, 'configure') and self.api_key and self.api_key != "AIzaSy-placeholder-key-for-development":
+        self.api_key = getattr(settings, "GROQ_API_KEY", "").strip()
+        self.client = None
+        self.model_name = "qwen/qwen3.6-27b"
+
+        if Groq and self.api_key:
             try:
-                genai.configure(api_key=self.api_key)
-                self.vision_model = genai.GenerativeModel(settings.GEMINI_MODEL)
+                self.client = Groq(api_key=self.api_key)
             except Exception as e:
-                logger.warning(f"Failed to configure Gemini Vision API: {e}")
-                self.vision_model = None
+                logger.warning(f"Failed to configure Groq Vision API: {e}")
+                self.client = None
         else:
-            self.vision_model = None
+            self.client = None
 
     async def analyze_leaf_image(self, image_path: str, filename: str) -> DiseaseAnalysisResult:
-        """Analyze leaf photo using Gemini Vision. No fake filename-based guessing."""
-        if not self.vision_model:
-            logger.error("Gemini Vision model not configured (missing/invalid API key).")
+        """Analyze leaf photo using Groq Vision. No fake filename-based guessing."""
+        if not self.client:
+            logger.error("Groq Vision model not configured (missing/invalid API key).")
             return self._unavailable_result()
 
         try:
-            img = Image.open(image_path)
+            with open(image_path, "rb") as f:
+                image_bytes = f.read()
+            image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+
+            ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else "jpeg"
+            mime = "image/png" if ext == "png" else "image/jpeg"
+
             prompt = """
             Analyze this agricultural plant leaf image carefully as a Plant Pathologist.
 
@@ -66,28 +72,55 @@ class DiseaseService:
               "urgency_level": "Low" | "Medium" | "High" | "Critical"
             }
             """
-            res = self.vision_model.generate_content([prompt, img])
 
-            if not res or not res.text:
-                logger.error("Gemini returned an empty response.")
+            res = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{mime};base64,{image_b64}"},
+                            },
+                        ],
+                    }
+                ],
+                temperature=0.2,
+                max_tokens=8000,
+                reasoning_format="hidden",
+            )
+
+            raw_text = res.choices[0].message.content
+            logger.info(f"Groq raw response: {raw_text!r}")
+
+            if not raw_text or not raw_text.strip():
+                logger.error("Groq returned an empty response.")
                 return self._unavailable_result()
 
-            clean_txt = res.text.strip()
+            clean_txt = raw_text.strip()
             if clean_txt.startswith("```json"):
                 clean_txt = clean_txt[7:]
             if clean_txt.startswith("```"):
                 clean_txt = clean_txt[3:]
             if clean_txt.endswith("```"):
                 clean_txt = clean_txt[:-3]
+            clean_txt = clean_txt.strip()
 
-            data = json.loads(clean_txt.strip())
+            # Extract the first {...} JSON object even if there's extra text around it
+            match = re.search(r"\{.*\}", clean_txt, re.DOTALL)
+            if match:
+                clean_txt = match.group(0)
+
+            data = json.loads(clean_txt)
             return DiseaseAnalysisResult(**data)
 
         except json.JSONDecodeError as e:
-            logger.error(f"Gemini response was not valid JSON: {e}")
+            logger.error(f"Groq response was not valid JSON: {e}")
             return self._unavailable_result()
         except Exception as e:
-            logger.error(f"Gemini Vision call failed: {e}")
+            logger.error(f"Groq Vision call failed: {e}")
             return self._unavailable_result()
 
     def _unavailable_result(self) -> DiseaseAnalysisResult:

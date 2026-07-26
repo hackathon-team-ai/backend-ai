@@ -21,12 +21,12 @@ async def upload_and_analyze_leaf(
     if not file.filename:
         raise HTTPException(status_code=400, detail="Please select an image file.")
     ext = os.path.splitext(file.filename)[1].lower()
-    if ext not in [".jpg", ".jpeg", ".png", ".webp"]:
-        raise HTTPException(status_code=400, detail="Invalid image format. Upload a JPG, PNG, or WEBP file.")
+    if ext not in [".jpg", ".jpeg", ".png", ".webp", ".jfif"]:
+        raise HTTPException(status_code=400, detail=f"Invalid image format '{ext}'. Upload a JPG, PNG, or WEBP file.")
 
     content = await file.read()
     if not content or len(content) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="Image must be between 1 byte and 10 MB.")
+        raise HTTPException(status_code=400, detail=f"Image must be between 1 byte and 10 MB. Got {len(content)} bytes.")
     try:
         from io import BytesIO
         with Image.open(BytesIO(content)) as image:
