@@ -7,10 +7,12 @@ router = APIRouter()
 
 @router.get("", response_model=WeatherResponse)
 async def get_weather(
-    state: str = Query("Maharashtra"),
-    district: str = Query("Pune"),
+    state: str = Query(None),
+    district: str = Query(None),
     current_user: dict = Depends(get_current_user)
 ):
-    user_state = state or current_user.get("state") or "Maharashtra"
-    user_district = district or current_user.get("district") or "Pune"
+    # Priority: query param > user profile > default
+    # If district is explicitly passed in query, use it; otherwise use user's profile district
+    user_state = state if state is not None else (current_user.get("state") or "Maharashtra")
+    user_district = district if district is not None else (current_user.get("district") or "Pune")
     return await weather_service.get_weather_data(state=user_state, district=user_district)

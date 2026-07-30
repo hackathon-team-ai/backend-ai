@@ -2,7 +2,9 @@ import os
 import uuid
 from datetime import datetime
 from typing import List
+# pyrefly: ignore [missing-import]
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+# pyrefly: ignore [missing-import]
 from PIL import Image, UnidentifiedImageError
 from app.api.v1.endpoints.auth import get_current_user
 from app.core.config import settings

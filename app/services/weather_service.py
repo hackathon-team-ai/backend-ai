@@ -7,14 +7,37 @@ from app.schemas.weather import WeatherResponse, DailyForecast
 logger = logging.getLogger("krishimitra.weather")
 
 class WeatherService:
+    async def _geocode_district(self, district: str, state: str, client: httpx.AsyncClient):
+        """Resolve district name to (lat, lon) using Open-Meteo geocoding API."""
+        # Try "District, State" first for better accuracy, then just district name
+        for query in [f"{district}, {state}, India", f"{district}, India"]:
+            try:
+                geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={query}&count=1&language=en&format=json"
+                geo_resp = await client.get(geo_url)
+                if geo_resp.status_code == 200:
+                    geo_data = geo_resp.json()
+                    results = geo_data.get("results", [])
+                    if results:
+                        lat = results[0]["latitude"]
+                        lon = results[0]["longitude"]
+                        logger.info(f"Geocoded '{district}' → lat={lat}, lon={lon}")
+                        return lat, lon
+            except Exception as e:
+                logger.warning(f"Geocoding attempt failed for '{query}': {e}")
+        return None, None
+
     async def get_weather_data(self, state: str = "Maharashtra", district: str = "Pune") -> WeatherResponse:
         """Fetch current weather and 7-day forecast with smart agricultural tips."""
         try:
-            # Open-Meteo public geocoding/weather API (Free, no key required)
-            # Default lat/lon for Pune/Maharashtra if lookup fails
-            lat, lon = 18.5204, 73.8567
-            
-            async with httpx.AsyncClient(timeout=4.0) as client:
+            async with httpx.AsyncClient(timeout=6.0) as client:
+                # Geocode the requested district to get actual coordinates
+                lat, lon = await self._geocode_district(district, state, client)
+
+                # Fall back to Pune only if geocoding completely fails
+                if lat is None or lon is None:
+                    logger.warning(f"Geocoding failed for '{district}', falling back to Pune coordinates.")
+                    lat, lon = 18.5204, 73.8567
+
                 url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,windspeed_10m_max&timezone=auto"
                 resp = await client.get(url)
                 if resp.status_code == 200:
