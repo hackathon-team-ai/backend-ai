@@ -26,14 +26,14 @@ class VoiceService:
             if len(clean_text) > 400:
                 clean_text = clean_text[:400] + "... Please check screen for full details."
 
-            # Map common Indian regional language codes
-            tts_lang = 'en'
-            if lang in ['hi', 'hindi']:
-                tts_lang = 'hi'
-            elif lang in ['mr', 'marathi']:
-                tts_lang = 'mr'
-            elif lang in ['ta', 'tamil']:
-                tts_lang = 'ta'
+            # Map all supported Indian language codes to gTTS lang codes
+            LANG_MAP = {
+                'en': 'en', 'hi': 'hi', 'mr': 'mr',
+                'ta': 'ta', 'te': 'te', 'kn': 'kn',
+                'gu': 'gu', 'pa': 'pa', 'bn': 'bn',
+                'or': 'or',   # gTTS supports Odia from v2.3+
+            }
+            tts_lang = LANG_MAP.get(lang.lower(), 'en')
 
             tts = gTTS(text=clean_text, lang=tts_lang, slow=False)
             tts.save(filepath)

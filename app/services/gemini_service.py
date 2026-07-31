@@ -40,11 +40,23 @@ class GeminiService:
         if not question:
             return "Please type your farming question."
 
-        language_name = {"mr": "Marathi", "hi": "Hindi", "en": "English"}.get(language.lower(), "English")
+        LANGUAGE_NAMES = {
+            "en": "English",
+            "hi": "Hindi",
+            "mr": "Marathi",
+            "ta": "Tamil",
+            "te": "Telugu",
+            "kn": "Kannada",
+            "gu": "Gujarati",
+            "pa": "Punjabi",
+            "bn": "Bengali",
+            "or": "Odia",
+        }
+        language_name = LANGUAGE_NAMES.get(language.lower(), "English")
         prompt = f"{AGRICULTURE_SYSTEM_PROMPT}\n\nCategory: {category}\n"
         if context:
             prompt += f"Use this retrieved knowledge only when relevant:\n{context}\n\n"
-        prompt += f"Farmer's latest question: {question}\n\nReply only in {language_name}."
+        prompt += f"Farmer's latest question: {question}\n\nIMPORTANT: You MUST reply ONLY in {language_name}. Do not use English if the requested language is not English."
 
         if self.client:
             try:
@@ -64,40 +76,58 @@ class GeminiService:
         return self._question_aware_fallback(question, category, language)
 
     def _question_aware_fallback(self, question: str, category: str, language: str) -> str:
-        """Safe offline response that never substitutes an unrelated NPK answer."""
+        """Safe offline response that never substitutes an unrelated answer."""
         topic = f"{question.lower()} {category.lower()}"
 
-        if any(term in topic for term in ("what is crop", "what are crops", "crop meaning", "what is a crop")):
-            return self._localized(
-                "### What is a crop?\n\nA crop is a plant grown and harvested by farmers for food, fodder, fibre, oil, medicine, or other useful products. Examples include rice, wheat, cotton, sugarcane, and vegetables.",
-                "### पीक म्हणजे काय?\n\nशेतकरी अन्न, चारा, तंतू, तेल, औषध किंवा इतर उपयोगासाठी ज्या वनस्पती पिकवून काढतात त्याला पीक म्हणतात. उदा. तांदूळ, गहू, कापूस, ऊस आणि भाजीपाला.",
-                "### फसल क्या है?\n\nकिसान भोजन, चारा, रेशा, तेल, दवा या अन्य उपयोग के लिए जिन पौधों को उगाकर काटते हैं, उन्हें फसल कहते हैं। उदाहरण: धान, गेहूँ, कपास, गन्ना और सब्जियाँ।",
-                language,
+        if any(term in topic for term in ("fertilizer", "npk", "urea", "manure", "खत", "खाद", "ಗೊಬ್ಬರ", "ఎరువు", "உரம்", "ખાતર", "ਖਾਦ", "সার", "ସାର")):
+            return self._localized(language,
+                en="Please share the crop name, area (acres), crop growth stage, and soil-test N-P-K values. Fertilizer dose varies by crop and soil — a single dose would be unsafe.",
+                hi="कृपया फसल का नाम, क्षेत्रफल, अवस्था और मिट्टी परीक्षण N-P-K मान बताएँ। खाद की मात्रा फसल और मिट्टी के अनुसार बदलती है।",
+                mr="कृपया पिकाचे नाव, क्षेत्रफळ, अवस्था आणि माती N-P-K मूल्ये सांगा. एकच खत मात्रा सुरक्षित नाही.",
+                ta="பயிரின் பெயர், பரப்பு, வளர்ச்சி நிலை, மண் N-P-K மதிப்புகள் தெரிவிக்கவும். ஒரே உரத்தின் அளவு பாதுகாப்பானது அல்ல.",
+                te="పంట పేరు, విస్తీర్ణం, దశ, మట్టి N-P-K విలువలు తెలపండి. ఒకే ఎరువు మోతాదు సురక్షితం కాదు.",
+                kn="ಬೆಳೆ ಹೆಸರು, ವಿಸ್ತೀರ್ಣ, ಹಂತ, ಮಣ್ಣು N-P-K ಮೌಲ್ಯಗಳನ್ನು ತಿಳಿಸಿ. ಒಂದೇ ಗೊಬ್ಬರ ಪ್ರಮಾಣ ಸುರಕ್ಷಿತವಲ್ಲ.",
+                gu="પાકનું નામ, વિસ્તાર, અવસ્થા, જમીન N-P-K મૂલ્ય જણાવો. એક જ ખાતરની માત્રા સુરક્ષિત નથી.",
+                pa="ਫਸਲ ਦਾ ਨਾਮ, ਖੇਤਰਫਲ, ਅਵਸਥਾ, ਮਿੱਟੀ N-P-K ਮੁੱਲ ਦੱਸੋ। ਇੱਕੋ ਖਾਦ ਮਾਤਰਾ ਸੁਰੱਖਿਅਤ ਨਹੀਂ।",
+                bn="ফসলের নাম, জমির পরিমাণ, পর্যায় এবং মাটির N-P-K মান জানান। একটি নির্দিষ্ট সার মাত্রা নিরাপদ নয়।", odia="ଫସଲର ନାମ, ଜମି, ଅବସ୍ଥା ଏବଂ ମାଟି N-P-K ମୂଲ୍ୟ ଜଣାନ୍ତୁ। ଗୋଟିଏ ସାର ମାତ୍ରା ସୁରକ୍ଷିତ ନୁହେଁ।",
             )
-        if any(term in topic for term in ("fertilizer", "npk", "urea", "manure", "खत", "खाद")):
-            return self._localized(
-                "Please share the crop, area, crop stage, and soil-test values. Fertilizer dose changes by crop and soil, so a single NPK dose would be unsafe.",
-                "कृपया पीक, क्षेत्रफळ, पिकाची अवस्था आणि माती परीक्षणातील N-P-K मूल्ये सांगा. खताची मात्रा पीक व मातीप्रमाणे बदलते; एकच NPK मात्रा सुरक्षित नाही.",
-                "कृपया फसल, क्षेत्रफल, फसल की अवस्था और मिट्टी परीक्षण के N-P-K मान बताइए। उर्वरक की मात्रा फसल और मिट्टी के अनुसार बदलती है; एक ही NPK मात्रा सुरक्षित नहीं है।",
-                language,
+
+        if any(term in topic for term in ("disease", "spot", "yellow", "blight", "pest", "insect", "रोग", "कीड", "कीट", "ರೋಗ", "వ్యాధి", "நோய்", "રોગ", "ਬਿਮਾਰੀ", "রোগ", "ରୋଗ")):
+            return self._localized(language,
+                en="Please share the crop name, plant age, visible symptoms, and a clear leaf photo. Do not spray pesticide until the problem is identified.",
+                hi="कृपया फसल का नाम, उम्र, लक्षण और पत्ते की साफ फोटो भेजें। समस्या पहचाने बिना कीटनाशक न डालें।",
+                mr="पिकाचे नाव, वय, लक्षणे आणि पानाचा स्पष्ट फोटो पाठवा. समस्या ओळखल्याशिवाय फवारणी करू नका.",
+                ta="பயிரின் பெயர், வயது, அறிகுறிகள், இலை தெளிவான படம் அனுப்பவும். பிரச்னை தெரியாமல் பூச்சிக்கொல்லி தெளிக்காதீர்கள்.",
+                te="పంట పేరు, వయస్సు, లక్షణాలు, ఆకు స్పష్టమైన ఫోటో పంపండి. సమస్య గుర్తించకముందే పురుగుమందు వేయకండి.",
+                kn="ಬೆಳೆ ಹೆಸರು, ವಯಸ್ಸು, ರೋಗಲಕ್ಷಣ, ಎಲೆಯ ಸ್ಪಷ್ಟ ಫೋಟೋ ಕಳುಹಿಸಿ. ಗುರುತಿಸದೆ ಕೀಟನಾಶಕ ಸಿಂಪಡಿಸಬೇಡಿ.",
+                gu="પાકનું નામ, ઉંમર, લક્ષણ, પાંદડાની સ્પષ્ટ ફોટો મોકલો. સમસ્યા ઓળખ્યા વગર જંતુનાશક ન છાંટો.",
+                pa="ਫਸਲ ਦਾ ਨਾਮ, ਉਮਰ, ਲੱਛਣ ਅਤੇ ਪੱਤੇ ਦੀ ਸਾਫ਼ ਫੋਟੋ ਭੇਜੋ। ਸਮੱਸਿਆ ਪਛਾਣੇ ਬਿਨਾਂ ਕੀਟਨਾਸ਼ਕ ਨਾ ਪਾਓ।",
+                bn="ফসলের নাম, বয়স, লক্ষণ এবং পাতার স্পষ্ট ছবি পাঠান। সমস্যা চেনার আগে কীটনাশক দেবেন না।", odia="ଫସଲ ନାମ, ବୟସ, ଲକ୍ଷଣ ଏବଂ ପତ୍ରର ସ୍ପଷ୍ଟ ଫୋଟୋ ପଠାନ୍ତୁ। ସମସ୍ୟା ଚିହ୍ନଟ ନ ହେଲା ପର୍ଯ୍ୟନ୍ତ କୀଟନାଶକ ଦିଅନ୍ତୁ ନାହିଁ।",
             )
-        if any(term in topic for term in ("disease", "spot", "yellow", "blight", "pest", "insect", "रोग", "कीड", "कीट")):
-            return self._localized(
-                "Please share the crop name, plant age, visible symptoms, and a clear leaf photo. Do not spray a pesticide or fungicide until the problem is identified.",
-                "कृपया पिकाचे नाव, पिकाचे वय, दिसणारी लक्षणे आणि पानाचा स्पष्ट फोटो पाठवा. समस्या ओळखल्याशिवाय कीटकनाशक किंवा बुरशीनाशक फवारू नका.",
-                "कृपया फसल का नाम, फसल की उम्र, दिखने वाले लक्षण और पत्ते की साफ फोटो भेजें। समस्या पहचाने बिना कीटनाशक या फफूंदनाशक का छिड़काव न करें।",
-                language,
-            )
-        return self._localized(
-            f"I received your question: **{question}**. The AI service is currently unavailable, so please try again after configuring a valid API key. I will not replace it with an unrelated farming answer.",
-            f"तुमचा प्रश्न मिळाला: **{question}**. AI सेवा सध्या उपलब्ध नाही. वैध API key सेट केल्यानंतर पुन्हा प्रयत्न करा; मी याऐवजी असंबंधित शेतीचा सल्ला देणार नाही.",
-            f"आपका प्रश्न मिला: **{question}**। AI सेवा अभी उपलब्ध नहीं है। वैध API key सेट करने के बाद फिर प्रयास करें; मैं इसके बदले असंबंधित खेती की सलाह नहीं दूँगा।",
-            language,
+
+        return self._localized(language,
+            en=f"I received your question: **{question}**. The AI service is temporarily unavailable. Please try again later.",
+            hi=f"आपका प्रश्न मिला: **{question}**। AI सेवा अभी अनुपलब्ध है। कृपया बाद में पुनः प्रयास करें।",
+            mr=f"तुमचा प्रश्न मिळाला: **{question}**. AI सेवा सध्या उपलब्ध नाही. कृपया नंतर पुन्हा प्रयत्न करा.",
+            ta=f"உங்கள் கேள்வி கிடைத்தது: **{question}**. AI சேவை தற்போது கிடைக்கவில்லை. தயவுசெய்து மீண்டும் முயற்சிக்கவும்.",
+            te=f"మీ ప్రశ్న అందింది: **{question}**. AI సేవ ప్రస్తుతం అందుబాటులో లేదు. దయచేసి తర్వాత ప్రయత్నించండి.",
+            kn=f"ನಿಮ್ಮ ಪ್ರಶ್ನೆ ಸಿಕ್ಕಿತು: **{question}**. AI ಸೇವೆ ಪ್ರಸ್ತುತ ಲಭ್ಯವಿಲ್ಲ. ದಯವಿಟ್ಟು ನಂತರ ಪ್ರಯತ್ನಿಸಿ.",
+            gu=f"તમારો પ્રશ્ન મળ્યો: **{question}**. AI સેવા હાલ ઉપલબ્ધ નથી. કૃપા કરીને પછી ફરી પ્રયત્ન કરો.",
+            pa=f"ਤੁਹਾਡਾ ਸਵਾਲ ਮਿਲਿਆ: **{question}**. AI ਸੇਵਾ ਹੁਣ ਉਪਲਬਧ ਨਹੀਂ। ਕਿਰਪਾ ਕਰਕੇ ਬਾਅਦ ਵਿੱਚ ਕੋਸ਼ਿਸ਼ ਕਰੋ।",
+            bn=f"আপনার প্রশ্ন পাওয়া গেছে: **{question}**. AI পরিষেবা এখন অনুপলব্ধ। পরে আবার চেষ্টা করুন।",
+            odia=f"ଆପଣଙ୍କ ପ୍ରଶ୍ନ ମିଳିଲା: **{question}**. AI ସେବା ବର୍ତ୍ତମାନ ଉପଲବ୍ଧ ନୁହେଁ। ଦୟାକରି ପରେ ପୁଣି ଚେଷ୍ଟା କରନ୍ତୁ।",
         )
 
     @staticmethod
-    def _localized(english: str, marathi: str, hindi: str, language: str) -> str:
-        return {"mr": marathi, "hi": hindi}.get(language.lower(), english)
+    def _localized(language: str, *, en: str, hi: str, mr: str,
+                   ta: str = '', te: str = '', kn: str = '',
+                   gu: str = '', pa: str = '', bn: str = '', odia: str = '') -> str:
+        lang = language.lower()
+        return {
+            'hi': hi, 'mr': mr, 'ta': ta or en, 'te': te or en,
+            'kn': kn or en, 'gu': gu or en, 'pa': pa or en,
+            'bn': bn or en, 'or': odia or en,
+        }.get(lang, en)
 
 
 gemini_service = GeminiService()
