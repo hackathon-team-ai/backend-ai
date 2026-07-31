@@ -23,7 +23,7 @@ class GeminiService:
     def __init__(self):
         self.api_key = getattr(settings, "GEMINI_API_KEY", "").strip()
         self.client = None
-        self.model_name = "gemini-2.0-flash"
+        self.model_name = "gemini-3-flash-preview"
 
         if not genai or not self.api_key:
             logger.warning("Gemini is not configured; chat will use the local question-aware fallback.")
