@@ -105,7 +105,7 @@ class GeminiService:
             try:
                 from google import genai
                 client = genai.Client(api_key=gemini_key)
-                for model in ["gemini-3-flash-preview", "gemini-3.5-flash", "gemini-2.0-flash"]:
+                for model in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
                     try:
                         resp = client.models.generate_content(model=model, contents=[prompt])
                         answer = (resp.text or "").strip()
