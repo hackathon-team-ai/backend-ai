@@ -23,7 +23,7 @@ class GeminiService:
     def __init__(self):
         self.api_key = getattr(settings, "GROQ_API_KEY", "").strip()
         self.client = None
-        self.model_name = "openai/gpt-oss-120b"
+        self.model_name = "llama-3.3-70b-versatile"  # Valid Groq model
 
         if not Groq or not self.api_key:
             logger.warning("Groq is not configured; chat will use the local question-aware fallback.")

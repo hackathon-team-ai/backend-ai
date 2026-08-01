@@ -16,10 +16,11 @@ logger = logging.getLogger("krishimitra.disease")
 
 # Models to try in order — first one that works is used
 _GEMINI_VISION_MODELS = [
-    "gemini-3-flash-preview",
-    "gemini-3.1-flash-lite",
-    "gemini-3.1-flash-lite-preview",
-    "gemini-flash-latest",
+    "gemini-3-flash-preview",   # Working — primary choice
+    "gemini-3.5-flash",         # Fallback 1
+    "gemini-3.1-flash-lite",    # Fallback 2
+    "gemini-2.0-flash",         # Fallback 3 (may be rate-limited on free tier)
+    "gemini-2.0-flash-lite",    # Fallback 4
 ]
 
 _DISEASE_PROMPT = """
@@ -72,33 +73,97 @@ Return ONLY a valid JSON object — no preamble, no explanation, no markdown fen
 """
 
 
+def _load_gemini_key() -> str:
+    """
+    Load GEMINI_API_KEY with multiple fallbacks:
+    1. From pydantic settings (reads .env or .env/.env automatically)
+    2. From OS environment variable directly
+    3. By manually parsing .env/.env file (Windows folder quirk workaround)
+    """
+    import os
+
+    # 1. From settings (already handles .env/.env path via _find_env_file)
+    key = getattr(settings, "GEMINI_API_KEY", "").strip()
+    if key:
+        return key
+
+    # 2. OS env var (if server was started with env var set)
+    key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if key:
+        return key
+
+    # 3. Manual parse — disease_service.py is at backend-ai/app/services/
+    #    dirname x3 => backend-ai root
+    base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    candidates = [
+        os.path.join(base, ".env"),           # correct: backend-ai/.env (plain file)
+        os.path.join(base, ".env", ".env"),   # Windows quirk: backend-ai/.env/.env
+    ]
+    for env_path in candidates:
+        if os.path.isfile(env_path):
+            try:
+                with open(env_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("GEMINI_API_KEY"):
+                            _, _, val = line.partition("=")
+                            val = val.strip().strip('"').strip("'")
+                            if val:
+                                logger.info(f"GEMINI_API_KEY loaded manually from: {env_path}")
+                                return val
+            except Exception as e:
+                logger.warning(f"Could not parse {env_path}: {e}")
+    return ""
+
+
 class DiseaseService:
     def __init__(self):
-        self.api_key = getattr(settings, "GEMINI_API_KEY", "").strip()
+        # Defer actual client creation to first use
+        # so that env vars are fully loaded by the time we need them
+        self._initialized = False
+        self.api_key = ""
         self.client = None
         self.model_name = None
 
-        if genai and self.api_key:
+    def _ensure_initialized(self):
+        """Lazy init — called on first actual use, not at import time."""
+        if self._initialized:
+            return
+        self._initialized = True
+
+        self.api_key = _load_gemini_key()
+
+        if not self.api_key:
+            logger.error("GEMINI_API_KEY not found in any location. Disease detection will be unavailable.")
+            return
+
+        logger.info(f"GEMINI_API_KEY loaded (length={len(self.api_key)})")
+
+        if genai:
             try:
                 self.client = genai.Client(api_key=self.api_key)
                 logger.info("Gemini Vision client initialised.")
             except Exception as e:
                 logger.warning(f"Failed to configure Gemini Vision client: {e}")
                 self.client = None
+        else:
+            logger.error("google-genai package not installed. Run: pip install google-genai")
 
     def _find_working_model(self) -> str | None:
         """Try each candidate model with a trivial text call; return the first that works."""
         for model in _GEMINI_VISION_MODELS:
             try:
-                self.client.models.generate_content(model=model, contents="ping")
+                self.client.models.generate_content(model=model, contents="hello")
                 logger.info(f"Using Gemini vision model: {model}")
                 return model
             except Exception as e:
-                logger.debug(f"Model {model} not available: {e}")
+                logger.warning(f"Model {model} not available: {e}")
         return None
 
     async def analyze_leaf_image(self, image_path: str, filename: str) -> DiseaseAnalysisResult:
         """Analyze a leaf/crop photo using Gemini Vision."""
+        self._ensure_initialized()  # lazy init on first call
+
         if not self.client:
             logger.error("Gemini Vision client not configured (missing/invalid GEMINI_API_KEY).")
             return self._api_not_configured_result()
