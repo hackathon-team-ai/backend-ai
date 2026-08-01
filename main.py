@@ -1,17 +1,13 @@
 import os
 import logging
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from app.core.config import settings
-from app.database.mongodb import connect_to_mongo, close_mongo_connection
-from app.api.v1.router import api_router
 
-# ── Inject API keys into os.environ at startup ──────────────────────────────
-# This ensures keys are available to all services even if pydantic-settings
-# could not load the .env file (e.g. Windows .env folder quirk).
+# ── Load .env file only when running locally (not on Render/cloud) ──────────
+# On Render, env vars are injected directly into os.environ automatically.
 def _inject_keys_from_env_file():
+    # Skip if critical keys already present (means we're on Render or similar)
+    if os.environ.get("MONGODB_URL") and os.environ.get("GEMINI_API_KEY"):
+        return
+
     base = os.path.dirname(os.path.abspath(__file__))
     for path in [os.path.join(base, ".env"), os.path.join(base, ".env", ".env")]:
         if os.path.isfile(path):
@@ -24,9 +20,18 @@ def _inject_keys_from_env_file():
                         val = val.strip().strip('"').strip("'")
                         if key and val and key not in os.environ:
                             os.environ[key] = val
-            break  # use first file found
+            break
 
 _inject_keys_from_env_file()
+
+# ── Now import app modules (settings will read from os.environ) ─────────────
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from app.core.config import settings
+from app.database.mongodb import connect_to_mongo, close_mongo_connection
+from app.api.v1.router import api_router
 
 # Configure logger
 logging.basicConfig(

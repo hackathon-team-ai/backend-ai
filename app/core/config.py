@@ -37,12 +37,12 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    MONGODB_URL: str = "mongodb://localhost:27017"
-    MONGODB_DB_NAME: str = "krishimitra_db"
+    MONGODB_URL: str = os.environ.get("MONGODB_URL", "mongodb://localhost:27017")
+    MONGODB_DB_NAME: str = os.environ.get("MONGODB_DB_NAME", "krishimitra_db")
 
-    GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-2.0-flash"
-    GROQ_API_KEY: str = ""
+    GEMINI_API_KEY: str = os.environ.get("GEMINI_API_KEY", "")
+    GEMINI_MODEL: str = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+    GROQ_API_KEY: str = os.environ.get("GROQ_API_KEY", "")
 
     CHROMA_PERSIST_DIRECTORY: str = "./chroma_db"
     UPLOAD_DIR: str = "./uploads"
