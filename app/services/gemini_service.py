@@ -1,9 +1,9 @@
 import logging
 
 try:
-    from groq import Groq
+    from google import genai
 except ImportError:
-    Groq = None
+    genai = None
 
 from app.core.config import settings
 
@@ -21,19 +21,19 @@ information is missing instead of inventing it. Reply in the requested language.
 
 class GeminiService:
     def __init__(self):
-        self.api_key = getattr(settings, "GROQ_API_KEY", "").strip()
+        self.api_key = getattr(settings, "GEMINI_API_KEY", "").strip()
         self.client = None
         self.model_name = "llama-3.3-70b-versatile"  # Valid Groq model
 
-        if not Groq or not self.api_key:
-            logger.warning("Groq is not configured; chat will use the local question-aware fallback.")
+        if not genai or not self.api_key:
+            logger.warning("Gemini is not configured; chat will use the local question-aware fallback.")
             return
 
         try:
-            self.client = Groq(api_key=self.api_key)
-            logger.info("Groq chat client initialized: %s", self.model_name)
+            self.client = genai.Client(api_key=self.api_key)
+            logger.info("Gemini chat client initialized: %s", self.model_name)
         except Exception as exc:
-            logger.exception("Unable to initialise Groq: %s", exc)
+            logger.exception("Unable to initialise Gemini: %s", exc)
 
     async def generate_response(self, user_prompt: str, category: str = "General", context: str = "", language: str = "en") -> str:
         question = user_prompt.strip()
@@ -60,18 +60,16 @@ class GeminiService:
 
         if self.client:
             try:
-                response = self.client.chat.completions.create(
+                response = self.client.models.generate_content(
                     model=self.model_name,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.2,
-                    top_p=0.9,
+                    contents=[prompt],
                 )
-                answer = response.choices[0].message.content.strip()
+                answer = response.text.strip() if response.text else ""
                 if answer:
                     return answer
-                logger.warning("Groq returned an empty response.")
+                logger.warning("Gemini returned an empty response.")
             except Exception as exc:
-                logger.warning("Groq generation failed; using local fallback: %s", exc)
+                logger.warning("Gemini generation failed; using local fallback: %s", exc)
 
         return self._question_aware_fallback(question, category, language)
 
