@@ -16,11 +16,10 @@ logger = logging.getLogger("krishimitra.disease")
 
 # Models to try in order — first one that works is used
 _GEMINI_VISION_MODELS = [
-    "gemini-3-flash-preview",   # Working — primary choice
-    "gemini-3.5-flash",         # Fallback 1
-    "gemini-3.1-flash-lite",    # Fallback 2
-    "gemini-2.0-flash",         # Fallback 3 (may be rate-limited on free tier)
-    "gemini-2.0-flash-lite",    # Fallback 4
+    "gemini-2.0-flash",         # Primary choice
+    "gemini-2.0-flash-lite",    # Fallback 1
+    "gemini-1.5-flash",         # Fallback 2
+    "gemini-1.5-pro",           # Fallback 3
 ]
 
 _DISEASE_PROMPT = """
